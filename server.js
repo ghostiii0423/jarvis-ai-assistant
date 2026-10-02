@@ -150,7 +150,9 @@ app.post('/api/chat', async (req, res) => {
     }
   }
 
-  res.status(500).json({ error: 'KI nicht erreichbar. Bitte kurz warten und erneut versuchen.' });
+  const detail = lastError ? lastError.message : 'Kein Provider verfügbar';
+  console.error('Fehler:', detail);
+  res.status(500).json({ error: `KI-Fehler: ${detail}` });
 });
 
 app.post('/api/reset', (req, res) => {
@@ -161,6 +163,59 @@ app.post('/api/reset', (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'online', gemini: GEMINI_KEYS.length, groq: GROQ_KEYS.length });
+});
+
+// Debug endpoint to test API connection
+app.get('/api/test', async (req, res) => {
+  const results = [];
+
+  for (let i = 0; i < GEMINI_KEYS.length; i++) {
+    try {
+      const key = GEMINI_KEYS[i];
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Sag nur Hallo' }] }],
+          generationConfig: { maxOutputTokens: 10 }
+        })
+      });
+      const data = await r.json();
+      if (r.ok) {
+        results.push({ provider: `gemini_${i+1}`, status: 'OK', reply: data.candidates?.[0]?.content?.parts?.[0]?.text });
+      } else {
+        results.push({ provider: `gemini_${i+1}`, status: 'FEHLER', code: r.status, error: data.error?.message });
+      }
+    } catch (e) {
+      results.push({ provider: `gemini_${i+1}`, status: 'FEHLER', error: e.message });
+    }
+  }
+
+  for (let i = 0; i < GROQ_KEYS.length; i++) {
+    try {
+      const key = GROQ_KEYS[i];
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: 'Sag nur Hallo' }],
+          max_tokens: 10
+        })
+      });
+      const data = await r.json();
+      if (r.ok) {
+        results.push({ provider: `groq_${i+1}`, status: 'OK', reply: data.choices?.[0]?.message?.content });
+      } else {
+        results.push({ provider: `groq_${i+1}`, status: 'FEHLER', code: r.status, error: data.error?.message });
+      }
+    } catch (e) {
+      results.push({ provider: `groq_${i+1}`, status: 'FEHLER', error: e.message });
+    }
+  }
+
+  res.json({ results });
 });
 
 app.listen(PORT, () => {
