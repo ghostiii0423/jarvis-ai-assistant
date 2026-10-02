@@ -1,5 +1,4 @@
 const express = require('express');
-const Groq = require('groq-sdk');
 const path = require('path');
 
 require('dotenv').config();
@@ -10,23 +9,23 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const API_KEYS = [];
+// Support both Gemini and Groq keys
+const GEMINI_KEYS = [];
+for (let i = 1; i <= 20; i++) {
+  const key = process.env[`GEMINI_API_KEY_${i}`];
+  if (key) GEMINI_KEYS.push(key);
+}
+if (process.env.GEMINI_API_KEY) GEMINI_KEYS.push(process.env.GEMINI_API_KEY);
+
+const GROQ_KEYS = [];
 for (let i = 1; i <= 20; i++) {
   const key = process.env[`GROQ_API_KEY_${i}`];
-  if (key) API_KEYS.push(key);
+  if (key) GROQ_KEYS.push(key);
 }
-if (process.env.GROQ_API_KEY) API_KEYS.push(process.env.GROQ_API_KEY);
+if (process.env.GROQ_API_KEY) GROQ_KEYS.push(process.env.GROQ_API_KEY);
 
-let currentKeyIndex = 0;
-
-function getGroqClient() {
-  if (API_KEYS.length === 0) return null;
-  return new Groq({ apiKey: API_KEYS[currentKeyIndex % API_KEYS.length] });
-}
-
-function rotateKey() {
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-}
+let geminiIdx = 0;
+let groqIdx = 0;
 
 const SYSTEM_PROMPT = `Du bist J.A.R.V.I.S. (Just A Rather Very Intelligent System), ein hochintelligenter KI-Assistent inspiriert von Tony Starks KI aus Iron Man.
 
@@ -43,6 +42,70 @@ Dein Charakter:
 
 const conversationHistory = new Map();
 
+async function callGemini(history, keyIndex) {
+  const key = GEMINI_KEYS[keyIndex % GEMINI_KEYS.length];
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+
+  const contents = [
+    { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
+    { role: 'model', parts: [{ text: 'Verstanden, Sir. J.A.R.V.I.S. ist online und bereit.' }] },
+    ...history.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }))
+  ];
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents,
+      generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const e = new Error(err.error?.message || `Gemini ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+}
+
+async function callGroq(history, keyIndex) {
+  const key = GROQ_KEYS[keyIndex % GROQ_KEYS.length];
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...history
+      ],
+      temperature: 0.7,
+      max_tokens: 300
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const e = new Error(err.error?.message || `Groq ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || null;
+}
+
 app.post('/api/chat', async (req, res) => {
   const { message, sessionId } = req.body;
 
@@ -50,47 +113,43 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'Keine Nachricht erhalten' });
   }
 
-  if (API_KEYS.length === 0) {
-    return res.status(500).json({ error: 'Kein API-Key konfiguriert. Bitte .env Datei prüfen.' });
+  if (GEMINI_KEYS.length === 0 && GROQ_KEYS.length === 0) {
+    return res.status(500).json({ error: 'Kein API-Key konfiguriert.' });
   }
 
   let history = conversationHistory.get(sessionId) || [];
   history.push({ role: 'user', content: message });
+  if (history.length > 20) history = history.slice(-20);
 
-  if (history.length > 20) {
-    history = history.slice(-20);
-  }
-
-  let lastError = null;
-  for (let attempt = 0; attempt < API_KEYS.length; attempt++) {
+  // Try Gemini first, then Groq as fallback
+  for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
     try {
-      const groq = getGroqClient();
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...history
-        ],
-        temperature: 0.7,
-        max_tokens: 300,
-      });
-
-      const reply = completion.choices[0]?.message?.content || 'Entschuldigung, ich konnte keine Antwort generieren.';
-      history.push({ role: 'assistant', content: reply });
-      conversationHistory.set(sessionId, history);
-
-      return res.json({ reply });
-    } catch (err) {
-      lastError = err;
-      if (err.status === 429 || err.status === 401) {
-        rotateKey();
-        continue;
+      const reply = await callGemini(history, geminiIdx);
+      if (reply) {
+        history.push({ role: 'assistant', content: reply });
+        conversationHistory.set(sessionId, history);
+        return res.json({ reply });
       }
-      break;
+    } catch (err) {
+      console.error(`Gemini Key ${geminiIdx + 1} fehler:`, err.message);
+      geminiIdx = (geminiIdx + 1) % GEMINI_KEYS.length;
     }
   }
 
-  console.error('Alle Keys fehlgeschlagen:', lastError?.message);
+  for (let attempt = 0; attempt < GROQ_KEYS.length; attempt++) {
+    try {
+      const reply = await callGroq(history, groqIdx);
+      if (reply) {
+        history.push({ role: 'assistant', content: reply });
+        conversationHistory.set(sessionId, history);
+        return res.json({ reply });
+      }
+    } catch (err) {
+      console.error(`Groq Key ${groqIdx + 1} fehler:`, err.message);
+      groqIdx = (groqIdx + 1) % GROQ_KEYS.length;
+    }
+  }
+
   res.status(500).json({ error: 'KI nicht erreichbar. Bitte kurz warten und erneut versuchen.' });
 });
 
@@ -101,11 +160,11 @@ app.post('/api/reset', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'online', keys: API_KEYS.length });
+  res.json({ status: 'online', gemini: GEMINI_KEYS.length, groq: GROQ_KEYS.length });
 });
 
 app.listen(PORT, () => {
   console.log(`\n  J.A.R.V.I.S. — Systems Online`);
   console.log(`  http://localhost:${PORT}`);
-  console.log(`  API Keys: ${API_KEYS.length} geladen\n`);
+  console.log(`  Gemini Keys: ${GEMINI_KEYS.length} | Groq Keys: ${GROQ_KEYS.length}\n`);
 });

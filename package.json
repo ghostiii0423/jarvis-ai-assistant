@@ -1,7 +1,7 @@
 {
   "name": "jarvis-ai-assistant",
-  "version": "1.0.0",
-  "description": "J.A.R.V.I.S. - Voice AI Assistant powered by Groq",
+  "version": "1.1.0",
+  "description": "J.A.R.V.I.S. - Voice AI Assistant powered by Gemini & Groq",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "express": "^4.21.0",
-    "groq-sdk": "^0.8.0",
     "dotenv": "^16.4.5"
   }
 }

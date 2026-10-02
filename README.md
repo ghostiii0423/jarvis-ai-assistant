@@ -1,15 +1,15 @@
 # J.A.R.V.I.S. — KI Voice Assistant
 
-Voice-only KI-Assistent mit Arc-Reactor-UI, powered by Groq (Llama 3.3 70B).
+Voice-only KI-Assistent mit Arc-Reactor-UI, powered by Google Gemini (kostenlos).
 
 ## Setup
 
-1. **Groq API Key holen** (kostenlos): https://console.groq.com
+1. **Gemini API Key holen** (kostenlos): https://aistudio.google.com/apikey
 2. `.env` Datei erstellen:
    ```
    cp .env.example .env
    ```
-   Keys eintragen.
+   Key eintragen.
 
 3. **Starten:**
    ```bash
@@ -24,7 +24,7 @@ Voice-only KI-Assistent mit Arc-Reactor-UI, powered by Groq (Llama 3.3 70B).
 1. Repo mit GitHub verbinden auf https://render.com
 2. New → Web Service → dieses Repo wählen
 3. Build: `npm install` / Start: `npm start`
-4. Environment Variable `GROQ_API_KEY_1` setzen
+4. Environment Variable `GEMINI_API_KEY` setzen
 5. Deploy — URL auf dem iPhone öffnen
 
 ## iPhone
@@ -35,8 +35,9 @@ Voice-only KI-Assistent mit Arc-Reactor-UI, powered by Groq (Llama 3.3 70B).
 ## Features
 
 - Sprachsteuerung (Tippe den Reaktor)
-- Echte KI-Antworten via Groq/Llama 3.3 70B
+- Echte KI via Google Gemini 2.0 Flash (kostenlos)
+- Groq/Llama als Fallback
 - Sprachausgabe auf Deutsch
-- Multi-Key-Rotation (bis zu 20 Keys)
+- Multi-Key-Rotation (bis zu 20 Keys pro Provider)
 - Konversations-Gedächtnis
 - Arc-Reactor HUD mit Waveform-Visualizer
