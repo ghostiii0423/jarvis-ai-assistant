@@ -121,6 +121,8 @@ app.post('/api/chat', async (req, res) => {
   history.push({ role: 'user', content: message });
   if (history.length > 20) history = history.slice(-20);
 
+  let lastError = null;
+
   // Try Gemini first, then Groq as fallback
   for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
     try {
@@ -131,6 +133,7 @@ app.post('/api/chat', async (req, res) => {
         return res.json({ reply });
       }
     } catch (err) {
+      lastError = err;
       console.error(`Gemini Key ${geminiIdx + 1} fehler:`, err.message);
       geminiIdx = (geminiIdx + 1) % GEMINI_KEYS.length;
     }
@@ -145,6 +148,7 @@ app.post('/api/chat', async (req, res) => {
         return res.json({ reply });
       }
     } catch (err) {
+      lastError = err;
       console.error(`Groq Key ${groqIdx + 1} fehler:`, err.message);
       groqIdx = (groqIdx + 1) % GROQ_KEYS.length;
     }
